@@ -433,7 +433,7 @@
 
       <section class="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-3">
         <div class="flex items-center justify-between gap-2"><div><h3 class="font-black">Registro de asignaciones</h3><p class="text-xs text-slate-500">Consulta de las máquinas entregadas por operario y turno.</p></div><button onclick="renderAssignmentHistory()" class="text-xs font-bold px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700"><i class="fa-solid fa-rotate mr-1"></i>Actualizar</button></div>
-        <div class="overflow-x-auto"><table class="w-full text-xs text-left"><thead class="bg-slate-100 dark:bg-slate-900"><tr><th class="p-2">Fecha / turno</th><th class="p-2">Operario</th><th class="p-2">Máquinas asignadas</th><th class="p-2">Grupo</th><th class="p-2">Coordinador</th></tr></thead><tbody id="assignment-history-body"></tbody></table></div>
+        <div class="overflow-x-auto"><table class="w-full text-xs text-left"><thead class="bg-slate-100 dark:bg-slate-900"><tr><th class="p-2">Fecha / turno</th><th class="p-2">Operario</th><th class="p-2">Máquinas asignadas</th><th class="p-2">Grupo</th><th class="p-2">Coordinador</th><th class="p-2">Acciones</th></tr></thead><tbody id="assignment-history-body"></tbody></table></div>
       </section>
     </div>
 
@@ -2345,10 +2345,23 @@
       result.innerHTML=`<div class="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-black"><i class="fa-solid fa-circle-check"></i> Asignación realizada</div><p class="mt-2 text-sm font-semibold">${escapeQuick(staff.name)} · Código ${escapeQuick(staff.code)}</p><div class="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2">${chosen.map(id=>`<div class="rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-800 p-3 text-center"><div class="text-[10px] text-slate-500">${machineAssignmentGroup(id)==='pequeña'?'MÁQUINA PEQUEÑA':'MÁQUINA GRANDE'}</div><div class="text-xl font-black">${escapeQuick(id)}</div></div>`).join('')}</div><p class="text-xs mt-3 text-slate-600 dark:text-slate-300">Turno: ${escapeQuick(shift)} · Fecha: ${escapeQuick(date)}</p>`;
       document.getElementById('assignment-operator-code').value='';
     }
+    function deleteAssignmentRecord(recordId){
+      if(!isAdminUser()){showToast('Solo el administrador puede borrar registros de asignación.','error');return;}
+      const record=assignmentData.records.find(r=>String(r.id)===String(recordId));
+      if(!record){showToast('No se encontró el registro seleccionado.','error');return;}
+      const detail=`${record.operatorName} (código ${record.operatorCode}) · ${record.date} · ${record.shift} · máquinas ${record.machineIds.join(', ')}`;
+      if(!confirm(`¿Eliminar definitivamente esta asignación?\n\n${detail}\n\nLas máquinas quedarán disponibles para una nueva asignación.`)) return;
+      assignmentData.records=assignmentData.records.filter(r=>String(r.id)!==String(recordId));
+      persistAssignmentData();
+      renderAssignmentHistory();
+      renderAssignmentModule();
+      showToast('Registro de asignación eliminado.');
+    }
     function renderAssignmentHistory(){
       const body=document.getElementById('assignment-history-body'); if(!body)return;
       const rows=[...assignmentData.records].sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
-      body.innerHTML=rows.length?rows.map(r=>`<tr class="border-b border-slate-100 dark:border-slate-700"><td class="p-2">${escapeQuick(r.date)}<br><span class="text-slate-500">${escapeQuick(r.shift)}</span></td><td class="p-2 font-semibold">${escapeQuick(r.operatorName)}<br><span class="text-slate-500">Código ${escapeQuick(r.operatorCode)}</span></td><td class="p-2 font-black">${r.machineIds.map(escapeQuick).join(' · ')}</td><td class="p-2">${escapeQuick(r.group)}</td><td class="p-2">${escapeQuick(r.coordinator)}</td></tr>`).join(''):'<tr><td colspan="5" class="p-4 text-center text-slate-500">Todavía no hay asignaciones registradas.</td></tr>';
+      const canDelete=isAdminUser();
+      body.innerHTML=rows.length?rows.map(r=>`<tr class="border-b border-slate-100 dark:border-slate-700"><td class="p-2">${escapeQuick(r.date)}<br><span class="text-slate-500">${escapeQuick(r.shift)}</span></td><td class="p-2 font-semibold">${escapeQuick(r.operatorName)}<br><span class="text-slate-500">Código ${escapeQuick(r.operatorCode)}</span></td><td class="p-2 font-black">${r.machineIds.map(escapeQuick).join(' · ')}</td><td class="p-2">${escapeQuick(r.group)}</td><td class="p-2">${escapeQuick(r.coordinator)}</td><td class="p-2">${canDelete?`<button onclick="deleteAssignmentRecord('${escapeQuick(r.id)}')" class="rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-3 py-2 whitespace-nowrap" title="Borrar registro"><i class="fa-solid fa-trash mr-1"></i>Borrar</button>`:'<span class="text-slate-400">—</span>'}</td></tr>`).join(''):'<tr><td colspan="6" class="p-4 text-center text-slate-500">Todavía no hay asignaciones registradas.</td></tr>';
     }
 
     function switchTab(tab) {
