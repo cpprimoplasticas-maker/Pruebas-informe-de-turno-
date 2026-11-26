@@ -419,7 +419,7 @@
         <label class="block text-xs font-semibold">Máximo de máquinas por operario
           <select id="assign-max-machines" class="mt-1 w-full sm:w-48 rounded-lg border border-slate-300 dark:border-slate-600 p-2.5 bg-white dark:bg-slate-900"><option value="1">1 máquina</option><option value="2">2 máquinas</option><option value="3">3 máquinas</option><option value="4">4 máquinas</option><option value="5">5 máquinas</option></select>
         </label>
-        <div class="flex flex-wrap items-center justify-between gap-2"><div><h3 class="font-bold text-sm">Máquinas programadas</h3><p class="text-xs text-slate-500">Pequeñas: hasta 500-2. Grandes: desde 650. Los números entre 501 y 649 quedan fuera de la clasificación.</p></div><div class="flex gap-2"><button onclick="toggleAssignmentMachines(true)" class="text-xs font-bold px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700">Seleccionar todas</button><button onclick="toggleAssignmentMachines(false)" class="text-xs font-bold px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700">Limpiar</button></div></div>
+        <div class="flex flex-wrap items-center justify-between gap-2"><div><h3 class="font-bold text-sm">Máquinas programadas</h3><p class="text-xs text-slate-500">Pequeñas: hasta 500-2. Grandes: desde 650. Los números entre 501 y 649 quedan fuera de la clasificación.</p><p class="text-xs text-slate-500 mt-1">Puedes escribir un mensaje opcional e independiente para cada máquina.</p></div><div class="flex gap-2"><button onclick="toggleAssignmentMachines(true)" class="text-xs font-bold px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700">Seleccionar todas</button><button onclick="toggleAssignmentMachines(false)" class="text-xs font-bold px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700">Limpiar</button></div></div>
         <div id="assignment-machine-picker" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 max-h-72 overflow-y-auto p-2 rounded-xl border border-slate-200 dark:border-slate-700"></div>
         <div class="flex flex-wrap items-center justify-between gap-3"><p id="assignment-program-status" class="text-xs text-slate-500">No hay programación guardada para este turno.</p><button onclick="saveMachineProgram()" class="bg-brand-600 hover:bg-brand-500 text-white text-sm font-bold px-5 py-2.5 rounded-xl"><i class="fa-solid fa-cloud-arrow-up mr-2"></i>Guardar programación</button></div>
       </section>
@@ -2270,14 +2270,18 @@
       const picker=document.getElementById('assignment-machine-picker');
       if(picker){
         const key=currentAssignmentKey(), program=assignmentData.programs[key];
+        const machineMessages=program?.machineMessages || {};
         picker.innerHTML=sortMachinesDescending(machinesList).map(m=>{
           const checked=program ? program.machineIds.includes(m.id) : false;
           const group=machineAssignmentGroup(m.id);
           const label=group==='pequeña'?'Pequeña':group==='grande'?'Grande':'Sin clasificar';
-          return `<label class="flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 p-2 text-xs"><input class="assignment-machine-check" type="checkbox" value="${escapeQuick(m.id)}" ${checked?'checked':''}><span class="font-bold">${escapeQuick(m.id)}</span><span class="text-[10px] text-slate-500">${label}</span></label>`;
+          const savedMessage=machineMessages[m.id] ?? (program?.message || '');
+          return `<div class="rounded-lg border border-slate-200 dark:border-slate-700 p-2 text-xs space-y-2"><label class="flex items-center gap-2"><input class="assignment-machine-check" type="checkbox" value="${escapeQuick(m.id)}" ${checked?'checked':''}><span class="font-bold">${escapeQuick(m.id)}</span><span class="text-[10px] text-slate-500">${label}</span></label><textarea class="assignment-machine-message w-full rounded-md border border-slate-300 dark:border-slate-600 p-2 bg-white dark:bg-slate-900" data-machine-message="${escapeQuick(m.id)}" rows="2" maxlength="500" placeholder="Mensaje opcional para ${escapeQuick(m.id)}">${escapeQuick(savedMessage)}</textarea></div>`;
         }).join('');
         const status=document.getElementById('assignment-program-status');
         if(status) status.textContent=program?`Programación guardada: ${program.machineIds.length} máquinas · máximo ${program.maxMachines} por operario · ${program.coordinator}`:'No hay programación guardada para este turno.';
+        const maxField=document.getElementById('assign-max-machines');
+        if(maxField && program) maxField.value=String(program.maxMachines || 1);
       }
       const adminPanel=document.getElementById('assignment-coordinator-panel');
       if(adminPanel) adminPanel.classList.toggle('hidden',!isAdminUser());
@@ -2298,6 +2302,12 @@
       const coordinator=document.getElementById('assign-coordinator').value;
       const machineIds=[...document.querySelectorAll('.assignment-machine-check:checked')].map(el=>el.value);
       const maxMachines=parseInt(document.getElementById('assign-max-machines').value,10)||1;
+      const machineMessages={};
+      document.querySelectorAll('.assignment-machine-message').forEach(el=>{
+        const machineId=el.dataset.machineMessage;
+        const message=(el.value || '').trim().slice(0,500);
+        if(machineId && message) machineMessages[machineId]=message;
+      });
       if(!coordinator){showToast('Selecciona el coordinador responsable.','error');return;}
       if(!machineIds.length){showToast('Selecciona al menos una máquina.','error');return;}
       const unclassified=machineIds.filter(id=>machineAssignmentGroup(id)==='sin-clasificar');
@@ -2305,7 +2315,7 @@
       const key=assignmentShiftKey(date,shift);
       const existing=assignmentData.programs[key];
       if(existing && assignmentData.records.some(r=>r.programKey===key) && !confirm('Ya existen asignaciones para este turno. Cambiar la programación puede dejar registros anteriores fuera de la programación. ¿Continuar?')) return;
-      assignmentData.programs[key]={date,shift,coordinator,machineIds,maxMachines,savedAt:new Date().toISOString()};
+      assignmentData.programs[key]={date,shift,coordinator,machineIds,maxMachines,machineMessages,savedAt:new Date().toISOString()};
       persistAssignmentData(); renderAssignmentModule();
       showToast('Programación de máquinas guardada.');
     }
@@ -2342,7 +2352,8 @@
       const groupLabel=groups.length>1?'mixta':groups[0];
       const record={id:`${Date.now()}_${code}`,programKey:key,date,shift,operatorCode:staff.code,operatorName:staff.name,machineIds:chosen,group:groupLabel,primaryGroup:machineAssignmentGroup(chosen[0]),coordinator:program.coordinator,createdAt:new Date().toISOString()};
       assignmentData.records.push(record); persistAssignmentData(); renderAssignmentHistory();
-      result.innerHTML=`<div class="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-black"><i class="fa-solid fa-circle-check"></i> Asignación realizada</div><p class="mt-2 text-sm font-semibold">${escapeQuick(staff.name)} · Código ${escapeQuick(staff.code)}</p><div class="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2">${chosen.map(id=>`<div class="rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-800 p-3 text-center"><div class="text-[10px] text-slate-500">${machineAssignmentGroup(id)==='pequeña'?'MÁQUINA PEQUEÑA':'MÁQUINA GRANDE'}</div><div class="text-xl font-black">${escapeQuick(id)}</div></div>`).join('')}</div><p class="text-xs mt-3 text-slate-600 dark:text-slate-300">Turno: ${escapeQuick(shift)} · Fecha: ${escapeQuick(date)}</p>`;
+      const machineMessages=program.machineMessages || {};
+      result.innerHTML=`<div class="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-black"><i class="fa-solid fa-circle-check"></i> Asignación realizada</div><p class="mt-2 text-sm font-semibold">${escapeQuick(staff.name)} · Código ${escapeQuick(staff.code)}</p><div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">${chosen.map(id=>{const message=String(machineMessages[id] ?? program.message ?? '').trim();return `<div class="rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-800 p-3 text-center"><div class="text-[10px] text-slate-500">${machineAssignmentGroup(id)==='pequeña'?'MÁQUINA PEQUEÑA':'MÁQUINA GRANDE'}</div><div class="text-xl font-black">${escapeQuick(id)}</div>${message?`<div class="mt-2 text-left rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-2"><div class="text-[10px] font-black uppercase tracking-wide text-amber-800 dark:text-amber-300"><i class="fa-solid fa-message mr-1"></i>Mensaje del coordinador</div><p class="mt-1 text-xs text-slate-800 dark:text-slate-100 whitespace-pre-wrap">${escapeQuick(message)}</p></div>`:''}</div>`;}).join('')}</div><p class="text-xs mt-3 text-slate-600 dark:text-slate-300">Turno: ${escapeQuick(shift)} · Fecha: ${escapeQuick(date)}</p>`;
       document.getElementById('assignment-operator-code').value='';
     }
     function deleteAssignmentRecord(recordId){
