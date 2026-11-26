@@ -501,11 +501,20 @@
                 <i class="fa-solid fa-users text-brand-500"></i>
                 <span>Catálogo de Operadores / Personal</span>
               </h3>
-              <p class="text-xs text-slate-500">Personal habilitado para firmar reportes de turno</p>
+              <p class="text-xs text-slate-500">Personal habilitado. Excel: columnas Código y Nombre. La carga reemplaza el catálogo actual.</p>
             </div>
-            <button onclick="openAddStaffModal()" class="bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">
-              <i class="fa-solid fa-plus mr-1"></i> Añadir
-            </button>
+            <div class="flex flex-wrap gap-2">
+              <label class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer">
+                <i class="fa-solid fa-file-excel mr-1"></i> Actualizar desde Excel
+                <input type="file" id="import-staff-excel" accept=".xlsx,.xls,.csv" onchange="importStaffExcel(event)" class="hidden">
+              </label>
+              <button onclick="downloadStaffTemplate()" class="bg-slate-600 hover:bg-slate-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">
+                <i class="fa-solid fa-download mr-1"></i> Plantilla
+              </button>
+              <button onclick="openAddStaffModal()" class="bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">
+                <i class="fa-solid fa-plus mr-1"></i> Añadir
+              </button>
+            </div>
           </div>
 
           <div id="staff-list-container" class="space-y-2 max-h-72 overflow-y-auto pr-1">
@@ -795,7 +804,7 @@
   <div id="modal-add-staff" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
     <div class="bg-white dark:bg-slate-800 rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-700">
       <h3 class="font-bold text-slate-800 dark:text-slate-100 text-sm mb-3">Registrar Nuevo Operador</h3>
-      <input type="text" id="new-staff-name" placeholder="Nombre completo del responsable..." class="w-full text-xs border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 bg-slate-50 dark:bg-slate-900 mb-4">
+      <input type="text" id="new-staff-name" placeholder="Código - Nombre completo (ej. 213 - CRISTIAN POSADA)" class="w-full text-xs border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 bg-slate-50 dark:bg-slate-900 mb-4">
       <div class="flex justify-end space-x-2">
         <button onclick="closeAddStaffModal()" class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400">Cancelar</button>
         <button onclick="handleAddStaff()" class="px-4 py-1.5 text-xs bg-brand-600 text-white rounded-xl font-bold">Guardar</button>
@@ -1904,6 +1913,53 @@
     function populateFormDropdowns() {
       const select = document.getElementById('form-responsable');
       select.innerHTML = staffList.map(s => `<option value="${s}">${s}</option>`).join('');
+    }
+
+    function downloadStaffTemplate() {
+      if (typeof XLSX === 'undefined') { showToast('No se pudo cargar el módulo de Excel.', 'error'); return; }
+      const ws = XLSX.utils.aoa_to_sheet([['Código','Nombre'],['213','CRISTIAN POSADA RAMIREZ']]);
+      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Operadores');
+      XLSX.writeFile(wb, 'PLANTILLA_CATALOGO_OPERADORES.xlsx');
+    }
+
+    function importStaffExcel(e) {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      if (typeof XLSX === 'undefined') { showToast('No se pudo cargar el módulo de Excel.', 'error'); e.target.value=''; return; }
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        try {
+          const wb = XLSX.read(new Uint8Array(evt.target.result), {type:'array'});
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+          if (!rows || rows.length < 2) throw new Error('El archivo no contiene registros.');
+          const norm = v => String(v ?? '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+          const headers = (rows[0] || []).map(norm);
+          let codeCol = headers.findIndex(h => ['codigo','codigo operador','codigo operario','cod operario','id'].includes(h));
+          let nameCol = headers.findIndex(h => ['nombre','nombre completo','operario','operador','responsable'].includes(h));
+          if (codeCol < 0 || nameCol < 0) { codeCol = 0; nameCol = 1; }
+          const imported = [], seen = new Set();
+          for (let i=1; i<rows.length; i++) {
+            const row=rows[i] || [];
+            const code=String(row[codeCol] ?? '').trim().replace(/\.0$/,'');
+            const name=String(row[nameCol] ?? '').trim();
+            if (!code && !name) continue;
+            if (!code || !name) throw new Error('Fila '+(i+1)+': cada registro debe tener Código y Nombre.');
+            const key=code.toLowerCase();
+            if (seen.has(key)) throw new Error('Código duplicado en el archivo: '+code);
+            seen.add(key); imported.push(code+' - '+name);
+          }
+          if (!imported.length) throw new Error('No se encontraron operadores válidos.');
+          if (!confirm('Se cargarán '+imported.length+' operadores. Esta acción REEMPLAZARÁ el catálogo actual de '+staffList.length+' registros. ¿Deseas continuar?')) return;
+          staffList=imported;
+          saveStaffList();
+          showToast('Catálogo actualizado: '+imported.length+' operadores.');
+        } catch(err) {
+          showToast(err.message || 'No fue posible leer el archivo Excel.', 'error');
+        } finally { e.target.value=''; }
+      };
+      reader.onerror=function(){showToast('No fue posible leer el archivo.','error');e.target.value='';};
+      reader.readAsArrayBuffer(file);
     }
 
     function renderStaffList() {
